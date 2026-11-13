@@ -1,15 +1,17 @@
 ---
 name: latex-to-word
-description: Convert an Elsevier elsarticle or ACS achemso LaTeX manuscript or Supporting Information (main.tex + .bib + figures) into a submission-ready Word .docx with numbered equations, SVG figures, the journal's front matter, booktabs tables, and either live EndNote citations from a dedicated per-paper library or static numbered citations. Also covers DOI verification, a one-PDF-per-figure upload set, an optional marked (redline) copy against an earlier version, and sentence-level checks against the compiled PDF. Use when the user wants a LaTeX paper or SI as a Word/.docx file for journal submission, an EndNote library for a paper, a manuscript with changes marked, or journal-ready figure files. The EndNote and Word steps need macOS with EndNote 21 and Microsoft Word.
+description: Convert a LaTeX manuscript or Supporting Information (main.tex + .bib + figures) into a submission-ready Word .docx with numbered equations, SVG figures, the journal's front matter, tables, and either live EndNote citations from a dedicated per-paper library or static numbered citations. Ready-made pipelines for Elsevier elsarticle and ACS achemso; any other class or unusual construct is adapted on the spot. Also covers DOI verification, a one-PDF-per-figure upload set, an optional marked (redline) copy against an earlier version, and sentence-level checks against the compiled PDF. Use when the user wants a LaTeX paper or SI as a Word/.docx file for journal submission, an EndNote library for a paper, a manuscript with changes marked, or journal-ready figure files. The EndNote and Word steps need macOS with EndNote 21 and Microsoft Word.
 ---
 
-# LaTeX (elsarticle or achemso) → Word manuscript
+# LaTeX → Word manuscript
 
-Turns an `elsarticle` (Elsevier) or `achemso` (ACS) LaTeX paper into a Word file whose text,
-citations, equations and figures match the compiled PDF. Scripts live in `scripts/` next to this
-file. Detailed procedures are in `reference/`: read the file for a step before doing it.
-`build.sh` picks the pipeline from `\documentclass`. For `achemso`, also read
-`reference/achemso.md` before building.
+Turns a LaTeX paper into a Word file whose text, citations, equations and figures match the
+compiled PDF. Scripts live in `scripts/` next to this file. Detailed procedures are in
+`reference/`: read the file for a step before doing it.
+`build.sh` picks the pipeline from `\documentclass`: `achemso` (ACS; also read
+`reference/achemso.md` before building) or `elsarticle` (Elsevier). For anything else, or anything
+the scripts don't handle, see **When something is unusual** at the end: adapt the pipeline, don't
+stop at it.
 
 ## Ground rules (learned the hard way)
 
@@ -132,11 +134,41 @@ inputs must be EndNote-updated from the same library state, and unchanged figure
 byte-identical images. Verify that the redline without its deletions equals the revised file,
 that without its additions it equals the original, and that the pictures are identical.
 
-## Limitations
+## When something is unusual
 
-- Built for `elsarticle` and `achemso`. Other classes need a prep script of their own; the
-  achemso one (`prep_achemso.py`) shows the parts that change: front matter, headings,
-  citations and the reference list.
-- English section name "References" and US Letter page size are assumed.
-- Display equations come out as Word equations. Very unusual LaTeX math may need checking by eye.
-- `make_redline.py` expects elsarticle's "[n]" reference labels.
+The scripts encode what has been met so far; papers vary. Treat them as a starting point you are
+expected to extend, and fix whatever the paper needs. The compiled PDF stays the reference, and
+the verification steps decide when the work is done.
+
+- **Work on copies.** Copy the scripts into the build folder and change them there. An installed
+  skill may be read-only, and a plugin update would overwrite edits. If a fix is general, offer to
+  add it to the skill.
+- **Another document class** (revtex, rsc, Wiley, IEEEtran, plain `article`, …): `build.sh` would
+  fall back to the elsarticle pipeline, so don't run it unchanged. Write a prep script for the
+  class, starting from the closer of `prep.py` and `prep_achemso.py`.
+  - Usually only these change: the front matter, headings, the citation style and the
+    reference-list format.
+  - Figures, tables, equations, `post.py`, `elsarticle.lua` and the checks carry over.
+  - Find out what the class really prints by reading the PDF, the `.cls`/config files, or a TeX
+    probe of the preamble, as `prep_achemso.py` does. Don't guess from the source.
+- **A construct the scripts don't handle**, for example:
+  - a new float type, `align`/`gather`, `\citet`/`\citeauthor`, footnotes;
+  - macros the regexes miss, or a package that changes captions or numbering.
+  Extend the prep script, or rewrite that part of the scratch `.tex` into a form the pipeline
+  handles. Check that the compiled PDF is unchanged, then rebuild.
+- **Other assumptions to adjust when they don't hold:**
+  - the "References" heading (other languages, "Notes and References");
+  - US Letter pages (set the A4 size in `post.py`'s `sectPr`);
+  - Times New Roman 12 pt (`mkref.py`);
+  - the "[n]" labels `make_redline.py` matches.
+- **Figures that render oddly** (huge bitmaps, transparency, fonts missing in the SVG, panels
+  placed by `\llap` or `picture`): typeset the float alone at the text width and crop it, as
+  `render_figs_achemso.py` does. That renders whatever LaTeX draws. For another class, extend its
+  `ACS_ONLY` list with the class's own preamble commands, which the plain `article` class lacks.
+- **Math pandoc can't convert** (`\substack`, unusual environments, custom operators): simplify a
+  copy of the expression to an equivalent pandoc reads, and check it with `check_equations.py`.
+- **Warnings are work items.** `warnings=N` must reach 0. Every difference the checks report must
+  be fixed or explained; extend the checks when the layout differs, as `compare_achemso.py` does
+  for achemso.
+- **Ask the user** only about decisions the PDF can't settle (see the ground rules). Then report
+  what you adapted, and why.

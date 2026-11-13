@@ -3,17 +3,13 @@
 A [Claude Code](https://claude.com/claude-code) skill that converts a LaTeX manuscript into a
 submission-ready Word file and checks it against the compiled PDF.
 
-Supported document classes:
-
-| Class | Journals | Notes |
-|---|---|---|
-| `elsarticle` | Elsevier | Front matter, numbered equations, EndNote citations |
-| `achemso` | ACS (articles, letters, Supporting Information) | ACS citation styles, †/‡ author marks, S-numbering for an SI, booktabs tables |
-
 The Word file has the same text, citations, equations and figures as the PDF:
 - **Equations** are editable Word equations.
 - **Figures** are vector (SVG), at their LaTeX size.
 - **Citations** are either static numbers or live EndNote citations.
+
+When a paper uses a class or construct the skill hasn't met before, Claude adapts the scripts for
+it and checks the result against the PDF in the same way.
 
 ## Install
 
@@ -54,12 +50,6 @@ What happens:
 Claude asks before deciding anything the PDF can't settle, for example when a template hides the
 SI's section headings. It tells you which steps you have to do by hand in EndNote: creating an
 empty library, choosing the journal style, and **Update Citations and Bibliography**.
-
-## Limitations
-
-- Only `elsarticle` and `achemso` are supported. Other classes need their own prep script.
-- English "References" heading and US Letter page size are assumed.
-- The marked-copy script expects `elsarticle`-style "[n]" reference labels.
 
 See [`latex-to-word/skills/latex-to-word/SKILL.md`](latex-to-word/skills/latex-to-word/SKILL.md)
 for the full workflow and `reference/` for the details.

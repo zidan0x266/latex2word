@@ -1,8 +1,8 @@
 # latex-to-word (Claude Code plugin)
 
-A skill that has Claude Code turn an **Elsevier `elsarticle`** or **ACS `achemso`** LaTeX
-manuscript (or its Supporting Information) into a **submission-ready Word file** and check it
-carefully against the compiled PDF.
+A skill that has Claude Code turn a LaTeX manuscript (or its Supporting Information) into a
+**submission-ready Word file** and check it carefully against the compiled PDF. When a paper uses
+something the scripts haven't met, Claude adapts them and verifies the result the same way.
 
 ## What you get
 - **`main.docx`**:
@@ -45,10 +45,3 @@ Open Claude Code in your paper's folder and say, e.g.:
 - "Convert our ACS paper and its SI (main.tex, SI.tex) to Word."
 - "Make a marked copy comparing the revision with the initial submission."
 - "Prepare the figures for upload."
-
-## Limits
-- Built and tested on `elsarticle` (Journal of Membrane Science style, EndNote 21, Word for Mac)
-  and `achemso` 3.14 (ACS Macro Letters with SI, JACS, Biochemistry). Other document classes need
-  a prep script of their own.
-- The marked copy (`make_redline.py`) expects elsarticle's "[n]" reference labels.
-- It assumes English section names ("References") and US Letter pages.
