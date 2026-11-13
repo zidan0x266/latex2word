@@ -1,0 +1,18 @@
+{
+  "name": "latex-to-word",
+  "version": "0.2.0",
+  "description": "Convert an Elsevier elsarticle or ACS achemso LaTeX manuscript or Supporting Information into a submission-ready Word .docx: numbered equations, SVG figures (multi-panel figures as typeset), booktabs tables, live EndNote citations from a per-paper library (or static citations), DOI checks, journal-ready figure PDFs, a marked copy against an earlier version, and sentence-level verification against the compiled PDF.",
+  "keywords": [
+    "latex",
+    "elsarticle",
+    "achemso",
+    "acs",
+    "word",
+    "docx",
+    "endnote",
+    "manuscript",
+    "supporting information",
+    "journal submission",
+    "pandoc"
+  ]
+}

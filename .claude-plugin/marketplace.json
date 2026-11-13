@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "latex2word",
+  "description": "Claude Code plugin that converts LaTeX manuscripts (elsarticle, achemso) to submission-ready Word files",
+  "owner": {
+    "name": "latex2word"
+  },
+  "plugins": [
+    {
+      "name": "latex-to-word",
+      "description": "Convert an Elsevier elsarticle or ACS achemso LaTeX manuscript or Supporting Information into a submission-ready Word .docx: numbered equations, SVG figures (multi-panel figures as typeset), booktabs tables, live EndNote citations from a per-paper library (or static citations), DOI checks, journal-ready figure PDFs, a marked copy against an earlier version, and sentence-level verification against the compiled PDF.",
+      "source": "./latex-to-word",
+      "category": "productivity"
+    }
+  ]
+}
