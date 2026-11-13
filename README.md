@@ -47,9 +47,5 @@ What happens:
    sub/superscripts, symbols and tables.
 3. It saves the results in a `word/` folder inside the paper folder.
 
-Claude asks before deciding anything the PDF can't settle, for example when a template hides the
-SI's section headings. It tells you which steps you have to do by hand in EndNote: creating an
-empty library, choosing the journal style, and **Update Citations and Bibliography**.
-
 See [`latex-to-word/skills/latex-to-word/SKILL.md`](latex-to-word/skills/latex-to-word/SKILL.md)
 for the full workflow and `reference/` for the details.
