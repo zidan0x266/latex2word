@@ -6,7 +6,8 @@ since the PDF reads table cells in layout order), [REF: ...]-style placeholders,
 citation groups (superscript or round), equation numbering, and the reference list entry by entry.
 PDF side: tables are found by their booktabs rules; caption blocks start with "Figure/Scheme/
 Chart/Graph/Table N:"; TikZ panel labels and figure fonts are dropped (they are inside the Word
-pictures); reading stops at the TOC Graphic page. Word side: citations are the runs linked to a
+pictures); the TOC entry's heading is skipped and reading stops at it after the references (its
+picture is compared by eye). Word side: citations are the runs linked to a
 reference (pandoc's #_bibN bookmarks) or inside an EndNote field; \\citenum (plain number) is left out on both sides.
 Math is compared separately because the PDF stores it as positioned glyphs.
 
@@ -24,6 +25,21 @@ FIG_FONTS = ("ArialMT", "DejaVuSans", "HelveticaNeue", "Arial", "Helvetica")
 MATH_FONTS = ("CM", "MSBM", "rsfs", "MSAM")
 CAPTION = re.compile(r"\s*(Figure|Scheme|Chart|Graph|Table) S?\d+:")
 CITE_GROUP = re.compile(r"^\(?S?\d+(?:[,–-]S?\d+)*\)?$")
+
+
+def toc_names(docx_path):
+    """the TOC entry's heading (achemso \\tocentryname): the text before the TOC Graphic picture"""
+    names, prev = {"TOC Graphic"}, ""
+    for p in etree.fromstring(zipfile.ZipFile(docx_path).read("word/document.xml")).iter(w("p")):
+        sty = p.find(f"{w('pPr')}/{w('pStyle')}")
+        if sty is not None and sty.get(w("val")) == "TOCGraphic" and prev:
+            names.add(prev)
+        t = "".join(x.text or "" for x in p.iter(w("t"))).strip()
+        prev = t or prev
+    return names
+
+
+TOC_NAMES = toc_names(docx_path)
 
 
 def norm(t):
@@ -110,9 +126,9 @@ for page in pdf:
                 prose = [s for s in spans if not s["font"].startswith(MATH_FONTS) and s["text"].strip()]
                 keep = []
                 for s in spans:
-                    m = re.fullmatch(r"\s*\((\d+)\)\s*", s["text"])
+                    m = re.fullmatch(r"\s*\(([A-Z]?\d+)\)\s*", s["text"])   # (1), or (S1) in an SI
                     if m and s["bbox"][0] > Wd * 0.8 and all(p is s for p in prose):
-                        pdf_eqnums.append(int(m.group(1)))   # equation number: alone at the right margin
+                        pdf_eqnums.append(m.group(1))   # equation number: alone at the right margin
                         has_eqnum = True
                     else:
                         keep.append(s)
@@ -128,9 +144,11 @@ for page in pdf:
             text_spans = [s for s in spans if not s["font"].startswith(MATH_FONTS)] or spans
             txt = "".join(s["text"] for s in spans)            # inline math kept, in reading order
             size = max(text_spans, key=lambda s: len(s["text"].strip()))["size"]
-            if txt.strip() == "TOC Graphic":
-                done = True                                    # achemso TOC page: a separate upload item
-                break
+            if txt.strip() in TOC_NAMES:                       # achemso TOC entry: one picture in Word
+                if in_refs:
+                    done = True
+                    break
+                continue
             if txt.strip() == "References":
                 in_refs = True
                 continue
@@ -210,14 +228,18 @@ for p in root.iter(w("p")):
     sty = sty.get(w("val")) if sty is not None else ""
     for om in p.iter(f"{{{M}}}oMathPara"):
         eq = "".join(t.text or "" for t in om.iter(f"{{{M}}}t"))
-        m = re.search(r"#(\d+)$", eq)
-        eq_numbers.append(int(m.group(1)) if m else None)
+        m = re.search(r"#([A-Z]?\d+)$", eq)
+        eq_numbers.append(m.group(1) if m else None)
     parts = []
     for t in p.iter(w("t"), w("tab"), f"{{{M}}}t"):
         if any(a.tag == f"{{{M}}}oMathPara" for a in t.iterancestors()):
             continue
         parts.append("\t" if t.tag == w("tab") else t.text or "")
     text = "".join(parts)
+    if text.strip() in TOC_NAMES:
+        if in_refs:
+            break
+        continue
     if text.strip() == "References":
         in_refs = True
         continue

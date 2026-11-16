@@ -86,10 +86,14 @@ if "--achemso" in sys.argv[3:]:
         "Compact": pstyle("Compact", "Compact",
                           ppr='<w:spacing w:before="20" w:after="20" w:line="240" w:lineRule="auto" />', rpr=sz(20)),
         "TableCaption": pstyle("TableCaption", "Table Caption", based="Caption",
-                               ppr='<w:keepNext /><w:spacing w:before="240" w:after="60" w:line="240" w:lineRule="auto" /><w:jc w:val="both" />'),
+                               ppr='<w:keepNext /><w:keepLines /><w:spacing w:before="240" w:after="60" w:line="240" w:lineRule="auto" /><w:jc w:val="both" />'),
         "TableNote": pstyle("TableNote", "Table Note",
                             ppr='<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto" /><w:jc w:val="left" />',
                             rpr=sz(18)),
+        "TableFootnote": pstyle("TableFootnote", "Table Footnote", based="TableNote",
+                                ppr='<w:spacing w:before="60" w:after="0" w:line="240" w:lineRule="auto" /><w:jc w:val="center" />'),
+        "TOCGraphic": pstyle("TOCGraphic", "TOC Graphic", based="Figure",
+                             ppr='<w:suppressLineNumbers /><w:spacing w:before="120" w:after="0" w:line="240" w:lineRule="auto" /><w:jc w:val="center" />'),
     })
 
 with zipfile.ZipFile(src) as zin:

@@ -60,7 +60,8 @@ rsync -a --exclude .DS_Store "<paper folder>/" "$B/"
 - Check the log for real errors (`grep '^! ' main.log`), not just latexmk's exit code.
 - If latexmk stops early, for example because BibTeX fails on a paper with no `\cite` yet, run
   `pdflatex` (and `bibtex`) by hand until the references settle.
-- Compile every document that is to be converted (e.g. `main.tex` and `SI.tex`).
+- Compile every document that is to be converted (e.g. `main.tex` and `SI.tex`). An SI kept in a
+  subfolder (`esi/esi.tex`) is compiled and built in that subfolder, as Overleaf compiles it.
 
 ### 2. Build the Word file
 ```zsh
@@ -84,12 +85,14 @@ PYMUPDF_PYTHON=<venv>/bin/python scripts/build.sh "$B" main "$B/main.docx" [cite
   - **Figures:** a 300 dpi PNG with an SVG for vector figures, captioned "Figure N:". achemso
     multi-panel or TikZ figures are typeset as in the manuscript and rendered as one picture, so
     LaTeX-drawn panel labels are kept; schemes and charts are captioned "Scheme N:", "Chart N:".
-  - **Tables (achemso):** booktabs rules, columns sized to content, `threeparttable` notes
-    below, each table kept on one page with its notes.
+  - **Tables (achemso):** the rules as LaTeX draws them (booktabs, `\hline`, `\cline`), columns
+    sized to their content and the table's `\tabcolsep`, `threeparttable` notes or a plain note
+    below, each table kept on one page with its caption and notes.
   - **Chemistry and cross-references:** `\ce{}` and `La$^{3+}$`-style chemistry as real
-    sub/superscripts; cross-references resolved from the `.aux`.
-- Not included: elsarticle's Graphical Abstract and Highlights, achemso's TOC graphic. They are
-  separate upload items.
+    sub/superscripts; cross-references and `\citeauthor` names resolved from the `.aux`.
+  - **TOC entry (achemso):** where the PDF prints it (usually a page of its own at the end), under
+    its heading (`\tocentryname`) and framed at the journal's size, as one picture.
+- Not included: elsarticle's Graphical Abstract and Highlights. They are separate upload items.
 
 ### 3. EndNote citations (when the user wants live citations), see `reference/endnote.md`
 1. The user creates an **empty library** in EndNote (File › New) in the paper folder.
@@ -152,7 +155,7 @@ the verification steps decide when the work is done.
   - Find out what the class really prints by reading the PDF, the `.cls`/config files, or a TeX
     probe of the preamble, as `prep_achemso.py` does. Don't guess from the source.
 - **A construct the scripts don't handle**, for example:
-  - a new float type, `align`/`gather`, `\citet`/`\citeauthor`, footnotes;
+  - a new float type, `align`/`gather`, `\citet`/`\citeyear`, footnotes;
   - macros the regexes miss, or a package that changes captions or numbering.
   Extend the prep script, or rewrite that part of the scratch `.tex` into a form the pipeline
   handles. Check that the compiled PDF is unchanged, then rebuild.

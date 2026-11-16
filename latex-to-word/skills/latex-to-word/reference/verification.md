@@ -33,8 +33,9 @@ normalizing dash and quote characters.
 ## achemso: `scripts/compare_achemso.py` and `scripts/check_scripts_achemso.py`
 Same arguments and the same idea, adapted to the ACS layout (details in `achemso.md`):
 - **Classification:** affiliations are body size. Caption blocks are recognised by their first
-  line ("Figure/Scheme/Chart/Table N:"), since achemso sets the abstract in `\small`. Reading
-  stops at the TOC Graphic page.
+  line ("Figure/Scheme/Chart/Table N:"), since achemso sets the abstract in `\small`. The TOC
+  entry's heading (taken from the Word file) is skipped; after the references, reading stops
+  there. Its picture is checked by eye against the PDF.
 - **Tables** are found by their booktabs rules and compared as a bag of words, since the PDF
   reads cells in layout order.
 - **Citations:** Word citations are the runs linked to `#_bibN` (or inside an EndNote field).

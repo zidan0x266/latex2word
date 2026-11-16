@@ -1,6 +1,6 @@
 """Compare every sub-/superscript and every non-ASCII symbol between an achemso .docx and its
 LaTeX PDF (the achemso counterpart of check_scripts.py): achemso's sans-serif front matter is kept,
-TikZ panel labels (inside the Word pictures) are dropped, and reading stops at the TOC Graphic page.
+TikZ panel labels (inside the Word pictures) are dropped, and the TOC entry's heading is skipped.
 Display equations are excluded (checked separately); the reference list is excluded.
 Ends with an order-independent comparison: script characters per kind.
 usage: python check_scripts_achemso.py X.docx X.pdf
@@ -17,6 +17,21 @@ m = lambda t: f"{{{M}}}{t}"
 FIG_FONTS = ("ArialMT", "DejaVuSans", "HelveticaNeue", "Arial", "Helvetica")
 MATH_FONTS = ("CM", "MSBM", "rsfs", "MSAM")
 SAME = {"·": "⋅", "−": "-", "–": "-", "φ": "ϕ"}  # same glyph, different code point
+
+
+def toc_names(docx_path):
+    """the TOC entry's heading (achemso \\tocentryname): the text before the TOC Graphic picture"""
+    names, prev = {"TOC Graphic"}, ""
+    for p in etree.fromstring(zipfile.ZipFile(docx_path).read("word/document.xml")).iter(w("p")):
+        sty = p.find(f"{w('pPr')}/{w('pStyle')}")
+        if sty is not None and sty.get(w("val")) == "TOCGraphic" and prev:
+            names.add(prev)
+        t = "".join(x.text or "" for x in p.iter(w("t"))).strip()
+        prev = t or prev
+    return names
+
+
+TOC_NAMES = toc_names(docx_path)
 
 
 def clean(t):
@@ -41,9 +56,9 @@ for page in pdf:
             continue                                   # empty or display-equation block
         for spans in lines:
             txt = "".join(s["text"] for s in spans)
-            if txt.strip() in ("References", "TOC Graphic"):
+            if txt.strip() == "References":
                 in_refs = True
-            if in_refs:
+            if in_refs or txt.strip() in TOC_NAMES:
                 continue
             if re.fullmatch(r"\s*(S-)?\d+\s*", txt) and spans[0]["bbox"][1] > page.rect.height * 0.85:
                 continue                               # page number
@@ -72,10 +87,12 @@ def math_text(el):
 
 for p in root.iter(w("p")):
     ptxt = "".join(t.text or "" for t in p.iter(w("t")))
-    if ptxt.strip() in ("References", "TOC Graphic"):
+    if ptxt.strip() == "References":
         in_refs = True
     if in_refs:
         break
+    if ptxt.strip() in TOC_NAMES:
+        continue
     for el in p.iter(w("r"), m("sSub"), m("sSup"), m("sSubSup"), m("t")):
         if any(a.tag == m("oMathPara") for a in el.iterancestors()):
             continue                                   # display equations

@@ -11,7 +11,8 @@ usage: python3 prep_achemso.py BUILD_DIR STEM OUT.tex EQNUMS.json [CITES.json]
                                [--sections auto|on|off] [--numbered auto|on|off] [--prefix auto|S|none]
   BUILD_DIR must contain STEM.tex, STEM.aux, png/STEM_figs.json (render_figs_achemso.py) and,
   with citations, STEM.bbl. CITES.json: {bibkey: {"author", "year", "rec"}} -> EndNote
-  temporary citations. Also writes BUILD_DIR/STEM_post.opts (options for post.py).
+  temporary citations. Also writes BUILD_DIR/STEM_post.opts (options for post.py) and
+  BUILD_DIR/STEM_tables.json (the rules and \tabcolsep of each table).
 """
 import argparse
 import json
@@ -87,6 +88,15 @@ bbl = read(stem + ".bbl") if os.path.exists(os.path.join(build, stem + ".bbl")) 
 
 labels = dict(re.findall(r"\\newlabel\{([^}]+)\}\{\{([^}]*)\}", aux))
 bibnum = {k: int(v) for k, v in re.findall(r"\\bibcite\{([^}]+)\}\{\{(\d+)\}", aux)}
+# natbib: \bibcite{key}{{num}{year}{{short authors}}{{long authors}}} -> what \citeauthor prints
+bibauthor = {}
+for m in re.finditer(r"\\bibcite\{([^}]+)\}\{", aux):
+    fields, i = [], m.end()
+    while i < len(aux) and aux[i] == "{" and len(fields) < 3:
+        v, i = group(aux, i)
+        fields.append(v)
+    if len(fields) == 3:
+        bibauthor[m.group(1)] = re.sub(r"^\{(.*)\}$", r"\1", fields[2], flags=re.S)
 
 pre, rest = src.split("\\begin{document}", 1)
 body = rest.split("\\end{document}", 1)[0]
@@ -112,7 +122,10 @@ PROBE = r"""\makeatletter
 \acsprobe{bibnumfmt}{\expandafter\strip@prefix\meaning\bibnumfmt}
 \acsprobe{citenumfont}{\expandafter\strip@prefix\meaning\citenumfont}
 \acsprobe{page}{\expandafter\strip@prefix\meaning\thepage}
-\@for\acs@tmp:={figure,scheme,chart,graph,table}\do{%
+\acsprobe{tocname}{\expandafter\strip@prefix\meaning\tocentryname}
+\acsprobe{tocprint}{\expandafter\strip@prefix\meaning\acs@tocentry@print}
+\acsprobe{absextras}{\expandafter\strip@prefix\meaning\acs@abstract@extras}
+\@for\acs@tmp:={figure,scheme,chart,graph,table,section,equation}\do{%
   \acsprobe{the\acs@tmp}{\expandafter\expandafter\expandafter\strip@prefix\expandafter\meaning\csname the\acs@tmp\endcsname}}
 \makeatother
 """
@@ -120,7 +133,8 @@ raw_pre = read(stem + ".tex").split("\\begin{document}", 1)[0]
 probe_tex = os.path.join(build, stem + "_acsprobe.tex")
 open(probe_tex, "w", encoding="utf8").write(raw_pre + "\\begin{document}\n" + PROBE + "\\end{document}\n")
 r = subprocess.run(["pdflatex", "-draftmode", "-interaction=nonstopmode", os.path.basename(probe_tex)],
-                   cwd=build, capture_output=True, text=True, errors="replace")
+                   cwd=build, capture_output=True, text=True, errors="replace",
+                   env=dict(os.environ, max_print_line="100000"))   # one probe, one line
 probe = dict(re.findall(r"^ACSPROBE (\w+)=(.*)$", r.stdout, re.M))
 if len(probe) < 10 or not probe.get("bibnumfmt"):
     warn("class probe failed (see %s.log): assuming achemso defaults" % probe_tex[:-4])
@@ -148,16 +162,26 @@ LABEL_MARK = "P" if fmt.startswith("(") and fmt.endswith(")") else "D" if fmt.en
 PAGE_PREFIX = re.sub(r"\\.*", "", probe.get("page", "->").split("->", 1)[-1])   # suppinfo: "S-"
 
 
+def probe_prefix(kind):
+    return re.sub(r"\\.*", "", probe.get("the" + kind, "->").split("->", 1)[-1]).strip()   # "S\@arabic..." -> "S"
+
+
 def float_prefix(kind):
     if args.prefix != "auto":
         return "" if args.prefix == "none" else args.prefix
-    return re.sub(r"\\.*", "", probe.get("the" + kind, "->").split("->", 1)[-1]).strip()   # "S\@arabic..." -> "S"
+    return probe_prefix(kind)
+
+
+SEC_PREFIX, EQ_PREFIX = probe_prefix("section"), probe_prefix("equation")   # \renewcommand\thesection{S\arabic{section}}
 
 
 suppinfo = manuscript == "suppinfo"
 for k in ("keywords", "abbreviations"):
-    if probe.get(k) == "true" and re.search(r"\\%s\s*\{" % k, pre):
-        warn(f"{k}=true: achemso prints the {k}; not reproduced, add them by hand")
+    # printed with keywords=true, or by journals whose .cfg prints them after the abstract (jpclcd)
+    extras = probe.get("absextras", "")
+    always = "%s@print" % k in extras and "ifacs@%s" % k not in extras
+    if (probe.get(k) == "true" or always) and re.search(r"\\%s\s*\{" % k, pre):
+        warn(f"{k}: achemso prints the {k} here ({k}=true or the journal .cfg); not reproduced, add them by hand")
 
 # ---------------------------------------------------------------- macros (also with arguments)
 macros, argmacros = {}, {}
@@ -262,20 +286,76 @@ if contact:
 if suppinfo:
     title = "Supporting Information:\\\\ " + title
 
-# TOC graphic: a separate upload item, as the Graphical Abstract is for Elsevier
+# TOC entry: achemso prints it under \tocentryname in a frame (render_figs_achemso.py typesets
+# the frame as one picture), on a page of its own at the end of the document; some journals'
+# .cfg print it after the abstract instead (e.g. J. Phys. Chem. Lett.)
+toc_json = os.path.join(build, "png", stem + "_toc.json")
+toc_fig = json.load(open(toc_json)) if "\\begin{tocentry}" in body and os.path.exists(toc_json) else None
+toc_name = probe.get("tocname", "TOC Graphic").strip()
+for m in re.finditer(r"\\(?:re)?newcommand\*?\s*\{?\\tocentryname\}?\s*\{", src):
+    toc_name, _ = group(src, m.end() - 1)                  # \renewcommand*{\tocentryname}{...}, also in the body
+toc_at_end = "AtEndDocument" in probe.get("tocprint", "AtEndDocument")
+if "\\begin{tocentry}" in body and toc_fig is None:
+    warn("tocentry present but not rendered (png/%s_toc.json missing): run render_figs_achemso.py" % stem)
+
+
+def toc_block(heading_prefix=""):
+    if toc_fig is None:
+        return ""
+    return ("\\section*{%s%s}\n\n\\begin{tocgraphic}\n\\includegraphics[width=%.3fin]{png/%s.png}\n\\end{tocgraphic}\n"
+            % (heading_prefix, expand_macros(toc_name), toc_fig["width_in"], toc_fig["name"]))
+
+
 body = re.sub(r"\\begin\{tocentry\}.*?\\end\{tocentry\}", "", body, flags=re.S)
 # headings achemso always prints (\acs@section*), even with \SectionsOff
 ALWAYS = "ZZACSHEADING"
-body = re.sub(r"\\begin\{abstract\}(.*?)\\end\{abstract\}",
-              lambda m: "\\section*{%sAbstract}\n" % ALWAYS + m.group(1).strip() if abstract_on else "", body, flags=re.S)
+toc_after_abstract = "" if toc_at_end else "\n\n" + toc_block(ALWAYS)
+body, n_abs = re.subn(r"\\begin\{abstract\}(.*?)\\end\{abstract\}",
+                      lambda m: ("\\section*{%sAbstract}\n" % ALWAYS + m.group(1).strip() if abstract_on else "")
+                      + toc_after_abstract, body, flags=re.S)
+if toc_after_abstract and not n_abs:
+    body = toc_after_abstract + "\n\n" + body
 for env, name in (("acknowledgement", "Acknowledgement"), ("suppinfo", "Supporting Information Available")):
     body = re.sub(r"\\begin\{%s\}(.*?)\\end\{%s\}" % (env, env),
                   lambda m: "\\section*{%s%s}\n" % (ALWAYS, name) + m.group(1).strip(), body, flags=re.S)
 if re.search(r"\\footnote(?![A-Za-z])", body):
     warn("\\footnote: achemso turns footnotes into reference-list notes; not reproduced, check by hand")
 
+def tex_file(name):
+    for p in (name, name + ".tex"):
+        if os.path.isfile(os.path.join(build, p)):
+            return p
+    return None
+
+
+def resolve_inputs(t):
+    """\\IfFileExists{f}{yes}{no} as LaTeX decides it in the build folder, then \\input{f} inlined."""
+    for _ in range(5):
+        out, pos, changed = [], 0, False
+        for m in re.finditer(r"\\IfFileExists\s*\{", t):
+            if m.start() < pos:
+                continue
+            f, i = group(t, m.end() - 1)
+            yes, i = group(t, skip_ws(t, i))
+            no, i = group(t, skip_ws(t, i))
+            out.append(t[pos:m.start()] + (yes if tex_file(f.strip()) else no))
+            pos, changed = i, True
+        t = "".join(out) + t[pos:]
+
+        def inline(m):
+            f = tex_file(m.group(1).strip())
+            if f is None:
+                warn(f"\\input{{{m.group(1)}}}: file not found in the build folder")
+                return m.group(0)
+            return strip_comments(read(f))
+        t, n = re.subn(r"\\(?:input|include)\{([^}]+)\}", inline, t)
+        if not changed and not n:
+            break
+    return t
+
+
 doc = "\n\n".join(front) + "\n\n" + body
-doc = expand_macros(doc)
+doc = expand_macros(resolve_inputs(expand_macros(doc)))
 title = expand_macros(title)
 
 # ---------------------------------------------------------------- floats with pictures (render_figs_achemso.py)
@@ -335,11 +415,29 @@ def convert_table(m):
     tabs = list(re.finditer(r"\\begin\{tabular\}", env))
     if len(tabs) != 1:
         warn(f"table {num}: {len(tabs)} tabular environments; passed to pandoc unchanged")
+        table_rules.extend([None] * len(tabs))
         return m.group(0)
     spec, si = group(env, tabs[0].end())
     rows = env[si:env.index("\\end{tabular}")]
+    rules = rules_of(rows)
+    sep = re.search(r"\\setlength\s*\{?\\tabcolsep\}?\s*\{\s*([\d.]+)\s*pt\s*\}", env[:tabs[0].start()])
+    if sep:
+        rules["colsep_pt"] = float(sep.group(1))   # \setlength{\tabcolsep}{3pt}: Word cell margins
+    table_rules.append(rules)
     rows = re.sub(r"\\(addlinespace|cmidrule)(\([^)]*\))?(\[[^\]]*\])?(\{[^}]*\})?", "", tnote(rows))
+    rows = re.sub(r"\\cline\{[^}]*\}", "", rows)
+    # indents such as "\quad on them": a literal em space, which pandoc keeps at the start of a cell
+    rows = re.sub(r"\\qquad(?![A-Za-z])\s*", "\u2003\u2003", rows)
+    rows = re.sub(r"\\quad(?![A-Za-z])\s*", "\u2003", rows)
     notes = []
+    # text set below the tabular without threeparttable (e.g. "$^a$ Measured at 298 K."):
+    # full-width notes, centred as achemso sets the float
+    foot = env[env.index("\\end{tabular}") + len("\\end{tabular}"):]
+    foot = re.sub(r"\\(footnotesize|small|scriptsize|centering|par|medskip|smallskip|bigskip)(?![A-Za-z])", "", foot)
+    foot = re.sub(r"\\(vspace|setlength)\*?\{[^}]*\}(\{[^}]*\})?|\\label\{[^}]*\}", "", foot)
+    foot = re.sub(r"\\begin\{tablenotes\}.*?\\end\{tablenotes\}", "", foot, flags=re.S)
+    foot = [re.sub(r"\s+", " ", p).strip() for p in re.split(r"\n\s*\n", foot)]
+    foot = [p for p in foot if p and not re.fullmatch(r"\\end\{threeparttable\}", p)]
     nm = re.search(r"\\begin\{tablenotes\}(?:\[[^\]]*\])?(.*?)\\end\{tablenotes\}", env, re.S)
     if nm:
         for tag, txt in re.findall(r"\\item(?:\[([^\]]*)\])?(.*?)(?=\\item|$)", nm.group(1), re.S):
@@ -350,7 +448,44 @@ def convert_table(m):
            % (num, cap, spec, rows))
     if notes:
         out += "\n\\begin{tablenotes}\n" + "\n\n".join(notes) + "\n\\end{tablenotes}\n"
+    if foot:
+        out += "\n\\begin{tablefoot}\n" + "\n\n".join(foot) + "\n\\end{tablefoot}\n"
     return out
+
+
+def rules_of(rows):
+    """Rules inside a tabular, for post.py: {"top", "bottom": "thick"|"thin"|None,
+    "mid": [[after_row, first_col, last_col], ...]} (rows and columns from 0; last_col -1 = all)."""
+    toks = re.finditer(r"\\(toprule|midrule|bottomrule|hline)(?:\[[^\]]*\])?|\\(cline|cmidrule)(?:\([^)]*\))?(?:\[[^\]]*\])?"
+                       r"\{(\d+)-(\d+)\}|(?<!\\)\\\\(?:\[[^\]]*\])?", rows)
+    n, mid, top, last_rule, pending = 0, [], None, None, []
+    for t in toks:
+        if t.group(0).startswith("\\\\"):
+            n += 1
+            pending = []
+            continue
+        kind = t.group(1) or t.group(2)
+        weight = "thick" if kind in ("toprule", "bottomrule") else "thin"
+        if n == 0:
+            top = weight
+            continue
+        if kind in ("cline", "cmidrule"):
+            rule = [n - 1, int(t.group(3)) - 1, int(t.group(4)) - 1]
+        else:
+            rule = [n - 1, 0, -1]
+        mid.append(rule)
+        pending.append(rule)
+        last_rule = weight
+    # rules after the last row are the bottom rule, not a rule under that row
+    bottom = None
+    if pending:
+        for r in pending:
+            mid.remove(r)
+        bottom = last_rule
+    return {"top": top, "bottom": bottom, "mid": mid}
+
+
+table_rules = []
 
 
 doc = re.sub(r"\\begin\{table\*?\}(?:\[[^\]]*\])?(.*?)\\end\{table\*?\}", convert_table, doc, flags=re.S)
@@ -360,13 +495,13 @@ eqnums = []
 
 
 def convert_eq(m):
-    n = len(eqnums) + 1
+    n = EQ_PREFIX + str(len(eqnums) + 1)
     inner = m.group(1)
     for l in re.findall(r"\\label\{([^}]+)\}", inner):
-        if labels.get(l) != str(n):
+        if labels.get(l) != n:
             warn(f"equation label {l}: aux says {labels.get(l)}, sequential count {n}")
     inner = re.sub(r"\\label\{[^}]+\}", "", inner).strip()
-    eqnums.append(str(n))
+    eqnums.append(n)
     return "\n\\[\n" + inner + "\n\\]\n"
 
 
@@ -392,7 +527,7 @@ def convert_heading(m):
     sec[level] += 1
     for k in range(level + 1, 3):
         sec[k] = 0
-    num = ".".join(str(c) for c in sec[:level + 1])
+    num = SEC_PREFIX + ".".join(str(c) for c in sec[:level + 1])
     for l in text_labels:
         if labels.get(l) != num:
             warn(f"section label {l}: aux says {labels.get(l)}, computed {num}")
@@ -479,6 +614,17 @@ def cite(m):
     return pre_ws + cite_text(keys) + punct
 
 
+def citeauthor(m):
+    keys = [k.strip() for k in m.group(1).split(",") if k.strip()]
+    for k in keys:
+        if k not in bibauthor:
+            warn(f"\\citeauthor{{{k}}}: not in aux")
+    return ", ".join(bibauthor.get(k, "?") for k in keys)
+
+
+doc = re.sub(r"\\citeauthor\{([^}]+)\}", citeauthor, doc)
+if re.search(r"\\(citeauthor\*|citeyear|citealt|Citeauthor)", doc):
+    warn("\\citeauthor*, \\citeyear, \\citealt or \\Citeauthor present: not converted, check by hand")
 doc_ref = [doc]
 doc = re.sub(r"(\s*)\\(cite|citep|citet|citenum)\*?\{([^}]+)\}([.,;:])?", cite, doc)
 
@@ -517,6 +663,8 @@ def script(t):
 for t in ("doc", "title"):
     v = globals()[t]
     v = math_segments(v, lambda seg: re.sub(r"\\ce\{([^{}]*)\}", ce_math, seg))
+    # U^*: LaTeX sets math * as the asterisk operator (U+2217); pandoc writes "*" even for \ast
+    v = math_segments(v, lambda seg: re.sub(r"\^\s*(\{\s*(\*|\\ast)\s*\}|\*|\\ast(?![A-Za-z]))", "^{\u2217}", seg))
     v = re.sub(r"\\ce\{([^{}]*)\}", ce, v)
     v = re.sub(r"\$\\mathrm\{([A-Za-z]+)\}\^\{([0-9+\-]+)\}\$",
                lambda m: m.group(1) + "\\textsuperscript{%s}" % script(m.group(2)), v)       # $\mathrm{La}^{3+}$
@@ -537,6 +685,10 @@ if "\\ce{" in doc:
 doc = re.sub(r"\\(clearpage|newpage)", "\n\nZZPAGEBREAK\n\n", doc)
 for c in ("bibliographystyle", "biboptions", "captionsetup"):
     doc = re.sub(r"\\%s\{[^}]*\}" % c, "", doc)
+doc = re.sub(r"\\FloatBarrier(?![A-Za-z])", "", doc)
+# T1 letters pandoc does not know
+for c, u in (("DJ", "\u0110"), ("dj", "\u0111"), ("NG", "\u014a"), ("ng", "\u014b")):
+    doc = re.sub(r"\\%s(?![A-Za-z])(\{\}|[ \t]+)?" % c, u, doc)
 
 # ---------------------------------------------------------------- bibliography from the mciteplus .bbl
 items = re.findall(r"\\bibitem(?:\[(?:[^\[\]]|\[[^\]]*\])*\])?\{([^}]+)\}(.*?)\\EndOfBibitem", bbl, re.S)
@@ -555,21 +707,31 @@ for n, (key_, txt) in enumerate(items, 1):
 bib_block = "\\section*{References}\n\n\\begin{bibentries}\n\n" + "\n\n".join(refs) + "\n\n\\end{bibentries}\n"
 if endnote is not None:
     bib_block = "\\section*{References}\n"  # EndNote appends its bibliography at the end of the document
+    if toc_fig and toc_at_end:
+        bib_block = "\n\nZZPAGEBREAK\n\n" + toc_block() + "\n\nZZPAGEBREAK\n\n" + bib_block
+        print("EndNote: the TOC entry stands before References, since EndNote appends the bibliography at "
+              "the end; move it after the bibliography once EndNote has updated it")
 doc, nsub = re.subn(r"\\bibliography\{[^}]*\}", lambda m: bib_block, doc)
 if nsub > 1:
     warn("more than one \\bibliography command")
 if nsub == 0 and bibnum:
     warn("citations but no \\bibliography command")
 
+if toc_fig and toc_at_end and endnote is None:
+    doc += "\n\nZZPAGEBREAK\n\n" + toc_block()                # \AtEndDocument: a page of its own
 final = "\\title{%s}\n\\begin{document}\n\\maketitle\n\n%s\n\\end{document}\n" % (title.strip(), doc)
 with open(args.out_tex, "w", encoding="utf8") as f:
     f.write(final)
 with open(args.out_eq, "w") as f:
     json.dump(eqnums, f)
-post_opts = ["--tables"] + (["--page-prefix", PAGE_PREFIX] if PAGE_PREFIX else [])
+with open(os.path.join(build, stem + "_tables.json"), "w") as f:
+    json.dump(table_rules, f)
+post_opts = ["--tables", "--rules", stem + "_tables.json"] + \
+    (["--page-prefix", PAGE_PREFIX] if PAGE_PREFIX else [])
 with open(os.path.join(build, stem + "_post.opts"), "w") as f:
     f.write(" ".join(post_opts) + "\n")
 floats = " ".join(f"{k}s={v}" for k, v in counters.items() if v)
 print(f"achemso journal={journal} manuscript={manuscript} citations={cite_mode} sections={'on' if sections_on else 'off'}"
       f"{' numbered' if numbered and sections_on else ''} | {floats} equations={len(eqnums)} refs={len(refs)} "
+      f"{'toc=' + ('end ' if toc_at_end else 'abstract ') if toc_fig else ''}"
       f"authors={len(authors)} affiliations={len(affils)}+{len(alts)} warnings={len(warnings)}")

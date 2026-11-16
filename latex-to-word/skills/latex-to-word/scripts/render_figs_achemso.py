@@ -10,7 +10,10 @@ one picture per float, in document order.
 Writes png/<STEM>_figN.png, svg/<STEM>_figN.svg (vector, needs PyMuPDF), <STEM>_figN.pdf (one PDF
 per float for make_submission_figs.py: the cropped page, the source PDF, or a raster file wrapped
 losslessly) and png/<STEM>_figs.json [{"name", "width_in", "kind"}]; width_in is the size the
-float has in the PDF, capped at the text width. usage: python render_figs_achemso.py BUILD_DIR STEM   (gs, pdflatex, pdfcrop; macOS sips)
+float has in the PDF, capped at the text width.
+The tocentry (TOC graphic) is typeset as achemso prints it, in a frame of the journal's size
+(\acs@tocentry@width x height, read from a probe run), and written as <STEM>_toc in the same way,
+with png/<STEM>_toc.json {"name", "width_in", "kind"}. usage: python render_figs_achemso.py BUILD_DIR STEM   (gs, pdflatex, pdfcrop; macOS sips)
 """
 import json, os, re, shutil, struct, subprocess, sys
 
@@ -96,7 +99,7 @@ achemso_pkgs = ",".join(p for p in ("graphicx", "caption", "float", "url") if no
 STANDALONE = r"""\documentclass[12pt]{article}
 %s
 %s
-\usepackage[paperwidth=8.5in,paperheight=22in,textwidth=%.5fpt,textheight=20in]{geometry}
+\usepackage{geometry}\geometry{reset,paperwidth=8.5in,paperheight=22in,textwidth=%.5fpt,textheight=20in}
 \pagestyle{empty}
 \begin{document}
 \begin{figure}[p]%s\end{figure}
@@ -152,6 +155,31 @@ def svg_from(pdf, out):
     return "svg"
 
 
+def typeset(name, body):
+    """body alone on a standalone page with the manuscript preamble, cropped to its ink"""
+    tex = os.path.join(build, name + "_standalone.tex")
+    open(tex, "w", encoding="utf8").write(STANDALONE % (
+        "\\usepackage{%s}" % achemso_pkgs if achemso_pkgs else "", sa_pre, TEXTWIDTH_PT, body))
+    r = subprocess.run(["pdflatex", "-interaction=nonstopmode", "-halt-on-error", os.path.basename(tex)],
+                       cwd=build, stdout=log, stderr=log)
+    if r.returncode:
+        sys.exit(f"standalone page for {name} failed: see {tex[:-4]}.log")
+    crop = os.path.join(build, name + ".pdf")
+    subprocess.run(["pdfcrop", "--margins", "0", tex[:-4] + ".pdf", crop], stdout=log, stderr=log, check=True)
+    return crop
+
+
+def downsample(png, kind):
+    px, _ = png_px(png)
+    if px > MAXPX:  # keep the .docx small: no picture needs more than ~2400 px across
+        if shutil.which("magick"):
+            subprocess.run(["magick", png, "-resize", f"{MAXPX}x", png], check=True)
+        else:
+            subprocess.run(["sips", "--resampleWidth", str(MAXPX), png], stdout=subprocess.DEVNULL, check=True)
+        kind += f", downsampled {px} -> {MAXPX} px"
+    return kind
+
+
 figs = []
 for n, m in enumerate(re.finditer(FLOATS, src, re.S), 1):
     env = m.group(2)
@@ -185,25 +213,38 @@ for n, m in enumerate(re.finditer(FLOATS, src, re.S), 1):
                     pymupdf.Rect(0, 0, w * 72, w * 72 * py / px), filename=png)
                 doc.save(os.path.join(build, name + ".pdf"), deflate=True)
     else:
-        tex = os.path.join(build, name + "_standalone.tex")
-        open(tex, "w", encoding="utf8").write(STANDALONE % (
-            "\\usepackage{%s}" % achemso_pkgs if achemso_pkgs else "", sa_pre, TEXTWIDTH_PT, body))
-        r = subprocess.run(["pdflatex", "-interaction=nonstopmode", "-halt-on-error", os.path.basename(tex)],
-                           cwd=build, stdout=log, stderr=log)
-        if r.returncode:
-            sys.exit(f"standalone page for {m.group(1)} {n} failed: see {tex[:-4]}.log")
-        crop = os.path.join(build, name + ".pdf")
-        subprocess.run(["pdfcrop", "--margins", "0", tex[:-4] + ".pdf", crop], stdout=log, stderr=log, check=True)
-        typeset = gs_png(crop, png)
-        w = min(typeset, TEXTWIDTH_IN)
-        kind = f"composite ({len(incs)} files, {typeset:.2f} in wide as typeset), " + svg_from(crop, svg)
-    px, _ = png_px(png)
-    if px > MAXPX:  # keep the .docx small: no picture needs more than ~2400 px across
-        if shutil.which("magick"):
-            subprocess.run(["magick", png, "-resize", f"{MAXPX}x", png], check=True)
-        else:
-            subprocess.run(["sips", "--resampleWidth", str(MAXPX), png], stdout=subprocess.DEVNULL, check=True)
-        kind += f", downsampled {px} -> {MAXPX} px"
+        crop = typeset(name, body)
+        wide = gs_png(crop, png)
+        w = min(wide, TEXTWIDTH_IN)
+        kind = f"composite ({len(incs)} files, {wide:.2f} in wide as typeset), " + svg_from(crop, svg)
+    kind = downsample(png, kind)
     figs.append({"name": name, "width_in": round(w, 4), "kind": kind})
     print(f"{name:12s} {m.group(1):7s} {w:5.2f} in  {kind}")
 json.dump(figs, open(os.path.join(build, "png", stem + "_figs.json"), "w"), indent=1)
+
+# ---------------------------------------------------------------- TOC entry, framed as achemso prints it
+toc = re.search(r"\\begin\{tocentry\}(.*?)\\end\{tocentry\}", src, re.S)
+toc_json = os.path.join(build, "png", stem + "_toc.json")
+if os.path.exists(toc_json):
+    os.remove(toc_json)
+if toc:
+    # the box size comes from the class and the journal's .cfg (e.g. 8 cm x 4 cm for ACS Macro Letters)
+    probe = os.path.join(build, stem + "_tocprobe.tex")
+    raw_pre = open(os.path.join(build, stem + ".tex"), encoding="utf8").read().split("\\begin{document}", 1)[0]
+    open(probe, "w", encoding="utf8").write(raw_pre + "\\begin{document}\\makeatletter\\immediate\\write16{ACSTOCBOX "
+                                            "\\the\\acs@tocentry@width x \\the\\acs@tocentry@height}\\makeatother\\end{document}\n")
+    r = subprocess.run(["pdflatex", "-draftmode", "-interaction=nonstopmode", os.path.basename(probe)],
+                       cwd=build, capture_output=True, text=True, errors="replace")
+    box = re.search(r"ACSTOCBOX ([\d.]+pt)\s*x\s*([\d.]+pt)", r.stdout)   # TeX eats the space after \...@width
+    bw, bh = box.groups() if box else ("3.25in", "1.75in")
+    name = f"{stem}_toc"
+    png, svg = os.path.join(build, "png", name + ".png"), os.path.join(build, "svg", name + ".svg")
+    # achemso: \tocsize\sffamily, then \normalsize for the content itself, top-aligned in the frame
+    crop = typeset(name, "\\centering\\sffamily\\fbox{\\begin{minipage}{%s}\\normalsize"
+                         "\\vbox to %s{%s}\\end{minipage}}" % (bw, bh, toc.group(1)))
+    wide = gs_png(crop, png)
+    w = min(wide, TEXTWIDTH_IN)
+    kind = downsample(png, f"TOC entry, {bw} x {bh} frame{'' if box else ' (class default: probe failed)'}, "
+                      + svg_from(crop, svg))
+    json.dump({"name": name, "width_in": round(w, 4), "kind": kind}, open(toc_json, "w"), indent=1)
+    print(f"{name:12s} tocentry {w:5.2f} in  {kind}")

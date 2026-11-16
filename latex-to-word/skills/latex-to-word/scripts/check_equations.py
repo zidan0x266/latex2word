@@ -11,8 +11,8 @@ GREEK = {"alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ", "epsilon": "
          "sigma": "σ", "tau": "τ", "phi": "ϕ", "varphi": "φ", "chi": "χ", "psi": "ψ", "omega": "ω", "pi": "π",
          "Gamma": "Γ", "Delta": "Δ", "Theta": "Θ", "Lambda": "Λ", "Sigma": "Σ", "Phi": "Φ", "Psi": "Ψ", "Omega": "Ω",
          "langle": "⟨", "rangle": "⟩", "sum": "∑", "prod": "∏", "int": "∫", "infty": "∞", "partial": "∂",
-         "nabla": "∇", "propto": "∝", "approx": "≈", "pm": "±", "leq": "≤", "geq": "≥", "times": "×"}
-FUNCS = ("ln", "log", "exp", "cos", "sin", "tan", "lim", "max", "min")
+         "nabla": "∇", "propto": "∝", "approx": "≈", "pm": "±", "leq": "≤", "geq": "≥", "le": "≤", "ge": "≥", "times": "×"}
+FUNCS = ("ln", "log", "exp", "cos", "sin", "tan", "cosh", "sinh", "tanh", "lim", "max", "min")
 SYMS = "".join(GREEK.values())
 src = re.sub(r"(?<!\\)%.*", "", open(tex, encoding="utf8").read())
 eqs = re.findall(r"\\begin\{equation\}(.*?)\\end\{equation\}", src, re.S)
@@ -40,7 +40,7 @@ paras = re.findall(r"<m:oMathPara>.*?</m:oMathPara>", xml, re.S)
 bad = 0
 for n, (e, p) in enumerate(zip(eqs, paras), 1):
     txt = "".join(x or y for x, y in re.findall(r"<m:t(?: [^>]*)?>([^<]*)</m:t>|m:(?:chr|begChr|endChr) m:val=\"([^\"]*)\"", p))
-    txt = re.sub(r"#\d+\)?$", "", html.unescape(txt).rstrip("()"))   # Word's "#(n)" equation number
+    txt = re.sub(r"#[A-Z]?\d+\)?$", "", html.unescape(txt).rstrip("()"))   # Word's "#(n)" or "#(S1)" equation number
     a, b = latex_chars(e), collections.Counter(c for c in txt if c.isalnum() or c in SYMS)
     if a != b:
         bad += 1

@@ -4,7 +4,8 @@
 `render_figs_achemso.py` → `mkref.py --achemso` → `prep_achemso.py` → pandoc with
 `elsarticle.lua` → `post.py` with the options `prep_achemso.py` writes to `STEM_post.opts`.
 Tested with achemso 3.14 (2025): ACS Macro Letters (letter and SI), JACS (article and
-`suppinfo`) and Biochemistry (round citations).
+`suppinfo`), Biochemistry (round citations), and a Letter whose JACS-class SI sits in a subfolder
+(`esi/esi.tex`) with S-numbered sections and equations and tables pulled in with `\input`.
 
 ## Class settings come from TeX, not from the source
 achemso decides headings, citation style and labels in three layers: class defaults, the journal's
@@ -22,7 +23,8 @@ reads the effective values:
 | natbib loaded `super` (default) | Superscript numbers **after** `.,;:` (natmove), no space before | Same; groups compressed, "2,3" and "1–4" |
 | natbib loaded `round` (journal `.cfg` with `super = false`, e.g. Biochemistry) | "(1)", "(2, 3)", italic numbers, before the punctuation | Same |
 | `\setkeys{acs}{super=false}` in the preamble | Still superscript, now "(1)" with italic numbers: achemso only changes brackets once natbib is loaded | Same (`citations=super-round`) |
-| `manuscript=suppinfo` | Title "Supporting Information:" on its own line; Figure/Scheme/Table **S1**; citations and labels S1, (S1); pages S-1 | Same; equations keep (1), (2), … |
+| `manuscript=suppinfo` | Title "Supporting Information:" on its own line; Figure/Scheme/Table **S1**; citations and labels S1, (S1); pages S-1 | Same; equations keep (1), (2), … unless `\theequation` is renewed |
+| `\renewcommand{\thesection}{S\arabic{section}}`, `\renewcommand{\theequation}{S\arabic{equation}}` (common in SI preambles) | "S1 Title", "S1.1 Title", equations (S1) | Same |
 | `biblabel` | "(1)" (brackets, default), "1." (fullstop/period), "1" | Same label form in the reference list |
 
 The prep script prints what it found, e.g. `achemso journal=amlccd manuscript=letter
@@ -46,6 +48,13 @@ Recompile. The probe then picks the changes up, and the PDF used for verificatio
 `\SectionsOn` works even after the `.cfg`'s `\SectionsOff`; `manuscript=suppinfo` would not
 bring the headings back for a Letters journal.
 
+## Files the source pulls in
+`\input{f}` and `\include{f}` are inlined (comments stripped), also when a macro expands to them.
+`\IfFileExists{f}{yes}{no}` is decided as LaTeX decides it in the build folder. An SI in a
+subfolder often uses it to work from either folder, e.g.
+`\newcommand{\sitable}[1]{\IfFileExists{esi/tables/#1.tex}{\input{esi/tables/#1}}{\input{tables/#1}}}`,
+or to pick the `\bibliography` path. Build the SI in its own folder, so both resolve as in the PDF.
+
 ## Front matter
 - `\author`, then `\affiliation`: an affiliation belongs to every author since the previous one.
   `\alsoaffiliation` adds one to the last author. Symbols go to affiliations in order of first
@@ -54,10 +63,22 @@ bring the headings back for a Letters journal.
   affiliations: "Ann Author,†,§ … Cy Third,∗,‡ and Dee Fourth∗,†".
 - "E-mail: a; b" is printed even with no `\email` (unless `email=false`), then "Phone: …",
   "Fax: …" lines.
-- `\keywords` and `\abbreviations` print only with `keywords=true` / `abbreviations=true`; the
-  prep script warns and leaves them out. achemso turns `\footnote` into reference-list notes;
+- `\keywords` and `\abbreviations` print only with `keywords=true` / `abbreviations=true`, or
+  always for journals whose `.cfg` prints them after the abstract (J. Phys. Chem. Lett.); the prep
+  script warns and leaves them out. achemso turns `\footnote` into reference-list notes;
   also warned, not reproduced.
-- The `tocentry` (TOC graphic) is a separate upload, like Elsevier's graphical abstract.
+- The `tocentry` (TOC graphic) is reproduced as achemso prints it. `render_figs_achemso.py`
+  typesets its content (`\sffamily`, top-aligned) in a frame of the journal's size: the class
+  default is 3.25 in × 1.75 in, and the journal's `.cfg` may change it, e.g. 8 cm × 4 cm for ACS
+  Macro Letters. A probe reads `\acs@tocentry@width`/`height`. The frame becomes one picture,
+  `STEM_toc`, under the heading `\tocentryname` ("TOC Graphic", or the document's own
+  `\renewcommand*{\tocentryname}{...}`, also when it is in the body).
+  - **Position:** a page of its own after the references (`\AtEndDocument`), or after the
+    abstract for journals whose `.cfg` puts it there (J. Phys. Chem. Lett.).
+  - **With EndNote**, it is placed before "References", because EndNote appends the bibliography
+    at the document end. Move it after the bibliography once EndNote has updated.
+  - **For the upload,** the journal still wants the graphic itself (without the frame) as a
+    separate file.
 
 ## Floats
 - `figure`, `scheme`, `chart`, `graph`: one picture each, in document order (`STEM_figN`).
@@ -69,13 +90,27 @@ bring the headings back for a Letters journal.
     crop keeps them. The Word width is the typeset width, capped at the text width.
 - **Comment-only lines must vanish, not become blank lines.** A `% (b) panel` line between two
   subfigures turned into a paragraph break and put every panel on its own row.
-- Tables: booktabs rules become Word borders (1 pt top and bottom, 0.5 pt under the header),
-  `\multicolumn` spans are kept, and `\addlinespace`/`\cmidrule` are dropped. `\tnote{a}` becomes
-  an italic superscript; `tablenotes` become "Table Note" paragraphs under the table. Captions
-  and notes are indented to the table's width, as `threeparttable` sets them. Rows and notes are
-  "keep with next", so a table stays on one page with its notes. That leaves white space where a
-  long table moves to the next page.
+- Tables:
+  - **Rules** are drawn where LaTeX draws them (`prep_achemso.py` writes them to
+    `STEM_tables.json` for `post.py --rules`). booktabs: 1 pt `\toprule`/`\bottomrule`, 0.5 pt
+    `\midrule`; `\hline`: 0.5 pt everywhere. `\cline{a-b}` and `\cmidrule{a-b}` rule only those
+    columns, e.g. under a `\multicolumn` header that spans the data columns. `\multicolumn` spans
+    are kept; `\addlinespace` is dropped.
+  - **Columns** are sized from Times New Roman widths at the 10 pt cell size: a column never
+    breaks its longest word, and when the table is wider than the text, only the columns that can
+    wrap give up room. `\setlength{\tabcolsep}{3pt}` in the float becomes the cell margins.
+    `\quad`/`\qquad` indents at the start of a cell are kept as em spaces.
+  - **Notes:** `\tnote{a}` becomes an italic superscript; `tablenotes` become "Table Note"
+    paragraphs indented to the table's width, as `threeparttable` sets them. Plain text after the
+    `tabular` (e.g. "$^a$ Measured at 298 K.") becomes "Table Footnote" paragraphs at the full text
+    width, centred as achemso sets them.
+  - **Pagination:** the caption's lines, the rows and the notes are "keep with next", so a table
+    stays on one page with its caption and notes. That leaves white space where a long table moves
+    to the next page. The paragraph after a table gets 12 pt of space above it.
 - `\captionsetup` must not be mistaken for `\caption`: match `\caption(?![A-Za-z])`.
+- The standalone figure page loads the manuscript preamble. When that already loads `geometry`,
+  the page size is set with `\geometry{reset,...}`, since a second `\usepackage[...]{geometry}`
+  stops with an option clash.
 
 ## Text details
 - Macros with arguments are expanded (`\newcommand*\REF[1]{\textbf{[REF: #1]}}` gives bold
@@ -86,6 +121,12 @@ bring the headings back for a Letters journal.
   **em dash**. The Word file copies the PDF; tell the user, since it is almost always a typo
   for `--`.
 - `\subref{fig:1b}` gives "b" (from `sub@fig:1b` in the `.aux`); `\eqref` gives "(n)".
+- `\citeauthor{key}` gives natbib's short author list from the `.aux` (`\bibcite`), e.g.
+  "Ann Author and Cy Third" or "Ann Author et al.", also when the preamble wraps it in `NoHyper`.
+  `\citeauthor*`, `\citeyear`, `\citealt` and `\Citeauthor` are warned about, not converted.
+- T1 letters pandoc drops (`\DJ` Đ, the dispersity symbol, and `\dj`, `\NG`, `\ng`) are typed
+  as Unicode. A math superscript `^*` or `^\ast` becomes ∗ (U+2217), as LaTeX sets it; pandoc
+  would write an ASCII asterisk.
 
 ## Known differences in the checks (not errors)
 - Inline formulas with stacked scripts (K<sub>s</sub><sup>0</sup>, k<sub>B</sub>T ln f) tokenize
@@ -98,3 +139,12 @@ bring the headings back for a Letters journal.
   PDF reader, so Word shows a few more superscripts.
 - A near-full-width display equation (Cambria Math is wider than Computer Modern) gets its
   number right up against it in Word.
+- The PDF reader gives Ð (eth) for `\DJ` (Word: Đ) and ∥ for achemso's ‖ affiliation mark. Small
+  front matter (`\footnotesize` affiliations) is counted with the captions.
+- A display equation with prose in it (`\quad\text{for all } \theta > 0`) is read as body text,
+  so its symbols and scripts show up as PDF-only. Accents such as `\bar{l}` (¯) are OMML
+  structure in Word.
+- A caption that the PDF reader merges into the body text (a float at the top of a page) moves
+  its citations from the captions' count to the body's. The two counts still add up.
+- Text inside a TOC entry printed after the abstract is PDF-only (in Word it is inside the
+  picture).

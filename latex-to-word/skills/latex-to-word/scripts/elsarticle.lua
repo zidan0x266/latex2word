@@ -8,6 +8,8 @@ local div_styles = {
   fmkeywords = 'Keywords',
   bibentries = 'Bibliography',
   tablenotes = 'Table Note',   -- achemso: threeparttable notes
+  tablefoot = 'Table Footnote',  -- achemso: plain text under the tabular, full width
+  tocgraphic = 'TOC Graphic',    -- achemso: the framed TOC entry, as one picture
 }
 
 -- achemso reference labels: ZZBIB<form><n>L<label>ZZ, form P = (label), D = label., N = label
