@@ -700,7 +700,10 @@ for n, (key_, txt) in enumerate(items, 1):
     txt = txt.split("\\mciteBstWouldAddEndPunct")[0]
     txt = re.sub(r"\\relax\s*$", "", txt.strip())
     txt = re.sub(r"\\newblock\s*", " ", txt)
-    txt = re.sub(r"\\doi\{([^}]*)\}", r"\\url{\1}", txt)
+    # the DOI as printed, linked to its resolver (a bare "10.xxxx/..." link would go nowhere); the
+    # bbl gives it verbatim, so the shown text escapes what LaTeX would read as markup
+    txt = re.sub(r"\\doi\{([^}]*)\}", lambda m: "\\href{https://doi.org/%s}{%s}" % (
+        m.group(1), re.sub(r"([%&$])", r"\\\1", m.group(1)).replace("~", "\\textasciitilde{}")), txt)
     txt = re.sub(r"\\href\s*\{([^}]*)\}\s*\{", r"\\href{\1}{", txt)
     txt = expand_macros(re.sub(r"\s+", " ", txt).strip()) + end_punct
     refs.append(f"ZZBIB{LABEL_MARK}{n}L{CITE_PREFIX}{n}ZZ {txt}")

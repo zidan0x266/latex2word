@@ -121,6 +121,8 @@ or to pick the `\bibliography` path. Build the SI in its own folder, so both res
   **em dash**. The Word file copies the PDF; tell the user, since it is almost always a typo
   for `--`.
 - `\subref{fig:1b}` gives "b" (from `sub@fig:1b` in the `.aux`); `\eqref` gives "(n)".
+- A DOI in the reference list (`\doi{10.xxxx/...}` in the `.bbl`, e.g. software or data on Zenodo)
+  shows as printed and links to `https://doi.org/10.xxxx/...`.
 - `\citeauthor{key}` gives natbib's short author list from the `.aux` (`\bibcite`), e.g.
   "Ann Author and Cy Third" or "Ann Author et al.", also when the preamble wraps it in `NoHyper`.
   `\citeauthor*`, `\citeyear`, `\citealt` and `\Citeauthor` are warned about, not converted.

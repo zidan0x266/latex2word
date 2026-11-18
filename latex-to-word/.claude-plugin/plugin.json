@@ -1,6 +1,6 @@
 {
   "name": "latex-to-word",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Convert a LaTeX manuscript or Supporting Information into a submission-ready Word .docx: numbered equations, SVG figures (multi-panel figures as typeset), tables, live EndNote citations from a per-paper library (or static citations), DOI checks, journal-ready figure PDFs, a marked copy against an earlier version, and sentence-level verification against the compiled PDF. Ready-made pipelines for elsarticle and achemso; other classes are adapted.",
   "keywords": [
     "latex",
